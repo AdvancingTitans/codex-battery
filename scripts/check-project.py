@@ -37,6 +37,8 @@ for file in root.rglob('*.md'):
     if file.name.startswith('README'):
         if len(text.splitlines()) > 250:
             errors.append(f'{file.name}: README exceeds budget')
+        if '<p align="center">[English]' in text:
+            errors.append(f'{file.name}: Markdown links inside raw HTML will not render')
         if f'/releases/download/v{version}/' not in text:
             errors.append(f'{file.name}: exact release download is missing')
     links = re.findall(r'\]\(([^)]+)\)|(?:src|href)="([^"]+)"', text)
