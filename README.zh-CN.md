@@ -1,7 +1,7 @@
 <h1 align="center">Codex Battery</h1>
 
 <p align="center"><strong>像看电池一样，看懂 Codex 剩余额度。</strong></p>
-<p align="center">[English](README.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md)</p>
+<p align="center"><a href="README.md">English</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.ja.md">日本語</a></p>
 
 <p align="center">
   <a href="https://github.com/AdvancingTitans/codex-battery/releases/download/v1.2.0/CodexBattery-1.2.0-universal.zip"><img alt="Download for macOS" src="https://img.shields.io/badge/Download-macOS-32a852?style=for-the-badge"></a>
