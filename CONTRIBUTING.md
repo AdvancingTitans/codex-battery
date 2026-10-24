@@ -16,4 +16,4 @@ The interface follows macOS preferred languages. English strings are the fallbac
 
 ## Release
 
-`VERSION` is the version source. See [release verification](docs/DEVELOPMENT.md). Only publish an artifact downloaded from a successful CI run for the tagged commit, after a clean extraction and local smoke check.
+`VERSION` is the version source. See [release verification](docs/DEVELOPMENT.md). The tag workflow publishes the exact tested CI artifact only after both architectures pass. Verify the public download with a clean extraction and authenticated smoke check.

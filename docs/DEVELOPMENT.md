@@ -36,9 +36,8 @@ swift scripts/render-marketing.swift docs/assets/thresholds.png docs/assets/soci
 
 1. Update `VERSION`, changelog, exact README download URLs and release notes.
 2. Push a reviewed commit and wait for both CI architectures to pass.
-3. Tag that exact commit (`v<VERSION>`). Download its `release-macos-15` workflow artifact.
-4. Run the project checks, verify signatures / architecture / checksums, and do an authenticated smoke test outside the checkout.
-5. Publish that exact ZIP and `SHA256SUMS` in a GitHub Release, without rebuilding the artifact locally.
-6. Download the public release again and verify the checksum and smoke test.
+3. Tag that exact commit (`v<VERSION>`) and push the tag. The tag workflow runs both native CI jobs again.
+4. After both jobs pass, the release job downloads `release-macos-15`, verifies its checksum, and publishes that exact ZIP with `SHA256SUMS` and the tagged release notes. The release job alone has `contents: write`.
+5. Download the public release again and verify the checksum, signature, architectures, localized checks and an authenticated smoke test outside the checkout.
 
 The app owns no hosted backend and has no auto-update service. Upgrades are manual. Apple notarization and Homebrew distribution are future options, not current installation promises.
