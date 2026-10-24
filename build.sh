@@ -37,7 +37,6 @@ PLIST
 xattr -cr "$APP"
 codesign --force --sign - "$APP"
 codesign --verify --strict "$APP"
-"$APP/Contents/MacOS/CodexBattery" --self-test
 for LANG in en zh-Hans ja; do
   "$APP/Contents/MacOS/CodexBattery" -AppleLanguages "($LANG)" --self-test
 done
