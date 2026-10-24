@@ -2,6 +2,12 @@ import AppKit
 import ServiceManagement
 import Darwin
 
+func L(_ key: String, _ arguments: CVarArg...) -> String {
+    let translated = NSLocalizedString(key, comment: "")
+    return arguments.isEmpty ? translated : String(format: translated, arguments: arguments)
+}
+let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.2.0"
+
 struct QuotaWindow: Decodable {
     let usedPercent: Double
     let windowDurationMins: Int?
@@ -11,11 +17,11 @@ struct QuotaWindow: Decodable {
         return Int((100 - usedPercent).rounded(.down))
     }
     var title: String {
-        guard let minutes = windowDurationMins else { return "额度周期" }
-        if minutes == 10080 { return "每周额度" }
-        if minutes % 1440 == 0 { return "\(minutes / 1440) 天额度" }
-        if minutes % 60 == 0 { return "\(minutes / 60) 小时额度" }
-        return "\(minutes) 分钟额度"
+        guard let minutes = windowDurationMins else { return L("Quota window") }
+        if minutes == 10080 { return L("Weekly quota") }
+        if minutes % 1440 == 0 { return L("%d-day quota", minutes / 1440) }
+        if minutes % 60 == 0 { return L("%d-hour quota", minutes / 60) }
+        return L("%d-minute quota", minutes)
     }
 }
 struct QuotaBucket: Decodable {
@@ -50,7 +56,7 @@ final class UsageClient {
         let paths = ["/opt/homebrew/bin/codex", "/usr/local/bin/codex", home + "/.local/bin/codex"]
             + (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").map { String($0) + "/codex" }
         guard let path = paths.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
-            throw BatteryError(message: "找不到 Codex CLI，请安装后重新打开应用。")
+            throw BatteryError(message: L("Codex CLI was not found. Install it and reopen the app."))
         }
         // npm's wrapper needs Node on PATH, which Finder does not inherit.
         // Prefer the native executable shipped by that same installed CLI.
@@ -81,7 +87,7 @@ final class UsageClient {
         process = nil; input = nil; output = nil; buffer.removeAll()
     }
     private func send(_ object: [String: Any]) throws {
-        guard let input else { throw BatteryError(message: "Codex 连接已断开。") }
+        guard let input else { throw BatteryError(message: L("The Codex connection was lost.")) }
         var data = try JSONSerialization.data(withJSONObject: object)
         data.append(10)
         try input.write(contentsOf: data)
@@ -96,24 +102,24 @@ final class UsageClient {
                       let responseID = object["id"] as? Int, responseID == id else { continue }
                 if let error = object["error"] as? [String: Any] {
                     let code = error["code"] as? Int ?? 0
-                    throw BatteryError(message: "Codex 用量读取失败（\(code)）。请检查 CLI 登录和网络后重试。")
+                    throw BatteryError(message: L("Could not read Codex usage (%d). Check CLI sign-in and your network.", code))
                 }
-                guard let result = object["result"] else { throw BatteryError(message: "Codex 返回了空数据。") }
+                guard let result = object["result"] else { throw BatteryError(message: L("Codex returned no data.")) }
                 return try JSONSerialization.data(withJSONObject: result)
             }
-            guard let output else { throw BatteryError(message: "Codex 连接已关闭。") }
+            guard let output else { throw BatteryError(message: L("The Codex connection is closed.")) }
             var descriptor = pollfd(fd: output.fileDescriptor, events: Int16(POLLIN), revents: 0)
             let remaining = max(1, Int32((end - ProcessInfo.processInfo.systemUptime) * 1000))
             let ready = poll(&descriptor, 1, remaining)
             if ready < 0 && errno == EINTR { continue }
-            guard ready > 0 else { throw BatteryError(message: "读取超时，请检查网络或 Codex 登录状态。") }
+            guard ready > 0 else { throw BatteryError(message: L("Request timed out. Check your network and Codex sign-in.")) }
             var bytes = [UInt8](repeating: 0, count: 65536)
             let count = Darwin.read(output.fileDescriptor, &bytes, bytes.count)
-            guard count > 0 else { throw BatteryError(message: "Codex 连接中断，将在下次刷新时重连。") }
+            guard count > 0 else { throw BatteryError(message: L("Codex disconnected. The next refresh will reconnect.")) }
             buffer.append(contentsOf: bytes.prefix(count))
-            if buffer.count > 2_000_000 { throw BatteryError(message: "Codex 返回的数据过大。") }
+            if buffer.count > 2_000_000 { throw BatteryError(message: L("The Codex response was too large.")) }
         }
-        throw BatteryError(message: "读取超时，请稍后重试。")
+        throw BatteryError(message: L("Request timed out. Try again later."))
     }
     private func connect() throws {
         if process?.isRunning == true { return }
@@ -128,7 +134,7 @@ final class UsageClient {
         p.standardInput = stdin; p.standardOutput = stdout; p.standardError = FileHandle.nullDevice
         try p.run()
         process = p; input = stdin.fileHandleForWriting; output = stdout.fileHandleForReading
-        try send(["id": 1, "method": "initialize", "params": ["clientInfo": ["name": "codex_battery", "title": "Codex Battery", "version": "1.1.1"]]])
+        try send(["id": 1, "method": "initialize", "params": ["clientInfo": ["name": "codex_battery", "title": "Codex Battery", "version": appVersion]]])
         _ = try response(id: 1)
         try send(["method": "initialized", "params": [:]])
     }
@@ -139,7 +145,7 @@ final class UsageClient {
             try send(["id": sequence, "method": "account/rateLimits/read"])
             let usage = try JSONDecoder().decode(Usage.self, from: response(id: sequence))
             guard let bucket = usage.codex, !bucket.windows.isEmpty else {
-                throw BatteryError(message: "当前账号未返回 Codex 额度。请确认 CLI 使用 ChatGPT 账号登录。")
+                throw BatteryError(message: L("No Codex quota was returned. Sign in to the CLI with a ChatGPT account."))
             }
             return bucket
         } catch {
@@ -242,8 +248,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return windows.first { $0.windowDurationMins == minutes }
     }
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let peers = NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "local.yjw.codexbattery")
+        let peers = NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "io.github.advancingtitans.codexbattery")
         if peers.contains(where: { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }) { NSApp.terminate(nil); return }
+        // Preserve settings from the local prototype when upgrading to the public release.
+        if !defaults.bool(forKey: "migratedPrototypeSettings") {
+            let previous = defaults.persistentDomain(forName: "local.yjw.codexbattery") ?? [:]
+            for key in ["redBelow", "greenFrom", "displayMode", "refreshInterval"] where defaults.object(forKey: key) == nil {
+                if let value = previous[key] { defaults.set(value, forKey: key) }
+            }
+            defaults.set(true, forKey: "migratedPrototypeSettings")
+        }
         NSApp.setActivationPolicy(.accessory)
         status = NSStatusBar.system.statusItem(withLength: 47)
         status.menu = menu; menu.delegate = self
@@ -281,10 +295,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let dark = status.button?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         status.button?.image = batteryImage(percent: lastError == nil ? percent : nil, stale: lastError != nil,
                                            thresholds: ColorThresholds(defaults: defaults), dark: dark)
-        let label = selected?.title ?? "所选周期暂无数据"
-        let summary = percent.map { "\(label)剩余 \($0)%" } ?? label
+        let label = selected?.title ?? L("No data for this window")
+        let summary = percent.map { L("%@: %d%% remaining", label, $0) } ?? label
         status.button?.toolTip = "Codex · " + (lastError ?? summary)
-        status.button?.setAccessibilityLabel("Codex 用量：" + (lastError ?? summary))
+        status.button?.setAccessibilityLabel(L("Codex usage: ") + (lastError ?? summary))
     }
     @discardableResult
     private func add(_ title: String, action: Selector? = nil, to parent: NSMenu? = nil, tag: Int = 0) -> NSMenuItem {
@@ -302,40 +316,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         add("Codex Battery" + (bucket?.planType.map { " · " + $0.capitalized } ?? ""))
         menu.addItem(.separator())
         if let bucket {
-            let formatter = DateFormatter(); formatter.locale = Locale(identifier: "zh_CN"); formatter.dateFormat = "M月d日 HH:mm"
+            let formatter = DateFormatter(); formatter.setLocalizedDateFormatFromTemplate("MMMdHHmm")
             for window in bucket.windows {
-                let remaining = window.remaining.map { "\($0)%" } ?? "未知"
-                add("\(window.title)　剩余 \(remaining)" + (lastError == nil ? "" : "（上次数据）"))
-                if let reset = window.resetsAt { add("    重置：" + formatter.string(from: Date(timeIntervalSince1970: reset))) }
+                let remaining = window.remaining.map { "\($0)%" } ?? L("Unknown")
+                add(L("%@: %@ remaining", window.title, remaining) + (lastError == nil ? "" : L(" (previous data)")))
+                if let reset = window.resetsAt { add(L("    Resets: ") + formatter.string(from: Date(timeIntervalSince1970: reset))) }
             }
-        } else { add(lastError == nil ? "正在读取 Codex 账号用量…" : "暂无用量数据") }
+        } else { add(lastError == nil ? L("Reading Codex usage…") : L("No usage data available")) }
         if let lastError { add(lastError) }
         if let date = lastUpdated {
             let formatter = DateFormatter(); formatter.dateFormat = "HH:mm:ss"
-            add("上次更新：" + formatter.string(from: date))
+            add(L("Last updated: ") + formatter.string(from: date))
         }
         menu.addItem(.separator())
-        add(loading ? "正在刷新…" : "立即刷新", action: loading ? nil : #selector(refresh))
+        add(loading ? L("Refreshing…") : L("Refresh now"), action: loading ? nil : #selector(refresh))
         let display = NSMenu()
-        let labels = ["5 小时剩余额度", "每周剩余额度", "两个周期中较低的剩余额度"]
+        let labels = [L("5-hour remaining quota"), L("Weekly remaining quota"), L("Lower remaining quota")]
         for (index, label) in labels.enumerated() {
             let item = add(label, action: #selector(changeMode(_:)), to: display, tag: index)
             item.state = displayMode == index ? .on : .off
         }
-        add("电池显示").submenu = display
-        add("电量颜色区间…", action: #selector(configureColors))
+        add(L("Battery display")).submenu = display
+        add(L("Charge color thresholds…"), action: #selector(configureColors))
         let frequency = NSMenu()
         for seconds in [15, 30, 60, 300] {
-            let item = add("每 \(seconds) 秒", action: #selector(changeInterval(_:)), to: frequency, tag: seconds)
+            let item = add(L("Every %d seconds", seconds), action: #selector(changeInterval(_:)), to: frequency, tag: seconds)
             item.state = Int(interval) == seconds ? .on : .off
         }
-        add("刷新频率").submenu = frequency
-        let loginItem = add("登录时启动", action: #selector(toggleLogin))
+        add(L("Refresh interval")).submenu = frequency
+        let loginItem = add(L("Launch at login"), action: #selector(toggleLogin))
         loginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
-        if SMAppService.mainApp.status == .requiresApproval { add("启动项待批准：点此打开设置", action: #selector(loginSettings)) }
+        if SMAppService.mainApp.status == .requiresApproval { add(L("Login item needs approval: open Settings"), action: #selector(loginSettings)) }
         menu.addItem(.separator())
-        add("打开 Codex", action: #selector(openCodex))
-        add("退出 Codex Battery", action: #selector(quit)).keyEquivalent = "q"
+        add(L("Open Codex"), action: #selector(openCodex))
+        add(L("Quit Codex Battery"), action: #selector(quit)).keyEquivalent = "q"
     }
     @objc private func changeMode(_ sender: NSMenuItem) {
         defaults.set(sender.tag, forKey: "displayMode"); updateIcon(); rebuildMenu()
@@ -346,16 +360,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func configureColors() {
         let current = ColorThresholds(defaults: defaults)
         let alert = NSAlert()
-        alert.messageText = "电量颜色区间"
-        let explanation = "电池内的电量填充色：\n剩余额度 ≥ 绿色起点：绿色\n剩余额度 < 红色上限：红色\n中间区间：橙色"
+        alert.messageText = L("Charge color thresholds")
+        let explanation = L("Battery charge fill:\nRemaining ≥ green threshold: green\nRemaining < red threshold: red\nIn between: orange")
         alert.informativeText = explanation
-        alert.addButton(withTitle: "保存")
-        alert.addButton(withTitle: "取消")
-        alert.addButton(withTitle: "恢复默认")
+        alert.addButton(withTitle: L("Save"))
+        alert.addButton(withTitle: L("Cancel"))
+        alert.addButton(withTitle: L("Restore defaults"))
         let form = NSView(frame: NSRect(x: 0, y: 0, width: 330, height: 80))
         let green = NSTextField(string: String(current.greenFrom))
         let red = NSTextField(string: String(current.redBelow))
-        for (title, field, y) in [("绿色起点（%）", green, 44.0), ("红色上限（%）", red, 8.0)] {
+        for (title, field, y) in [(L("Green starts at (%)"), green, 44.0), (L("Red below (%)"), red, 8.0)] {
             let label = NSTextField(labelWithString: title)
             label.frame = NSRect(x: 0, y: y + 2, width: 150, height: 22)
             field.frame = NSRect(x: 170, y: y, width: 90, height: 26)
@@ -377,7 +391,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let redValue = Int(red.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)),
                   let greenValue = Int(green.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)),
                   let thresholds = ColorThresholds(redBelow: redValue, greenFrom: greenValue) else {
-                alert.informativeText = "请输入 0–100 的整数，且红色上限必须小于绿色起点。\n\n" + explanation
+                alert.informativeText = L("Enter whole numbers from 0 to 100. The red threshold must be lower than the green threshold.\n\n") + explanation
                 continue
             }
             defaults.set(thresholds.redBelow, forKey: "redBelow")
@@ -391,7 +405,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if SMAppService.mainApp.status == .enabled { try SMAppService.mainApp.unregister() }
             else { try SMAppService.mainApp.register() }
         } catch {
-            let alert = NSAlert(); alert.messageText = "无法设置登录启动"; alert.informativeText = error.localizedDescription; alert.runModal()
+            let alert = NSAlert(); alert.messageText = L("Could not change launch at login"); alert.informativeText = error.localizedDescription; alert.runModal()
         }
         rebuildMenu()
     }
@@ -418,7 +432,7 @@ func runChecks() throws {
     let fixture = #"{"rateLimits":{"primary":{"usedPercent":99},"secondary":null},"rateLimitsByLimitId":{"codex":{"primary":{"usedPercent":2,"windowDurationMins":300,"resetsAt":1792866477},"secondary":{"usedPercent":25,"windowDurationMins":10080}}}}"#
     let bucket = try decode(fixture)!
     precondition(bucket.windows.map(\.remaining) == [98, 75])
-    precondition(bucket.windows.map(\.title) == ["5 小时额度", "每周额度"])
+    precondition(bucket.windows.map(\.title) == [L("%d-hour quota", 5), L("Weekly quota")])
     check(try decode(#"{"rateLimits":{"primary":{"usedPercent":0}}}"#)?.primary?.remaining == 100)
     check(try decode(#"{"rateLimits":{"primary":{"usedPercent":100}}}"#)?.primary?.remaining == 0)
     check(try decode(#"{"rateLimits":{"primary":{"usedPercent":101}}}"#)?.primary?.remaining == nil)
@@ -433,6 +447,13 @@ func runChecks() throws {
     precondition(ColorThresholds(redBelow: -1, greenFrom: 70) == nil)
     precondition(ColorThresholds(redBelow: 20, greenFrom: 101) == nil)
     print("PASS: default/custom color boundaries and invalid thresholds")
+    precondition(L("Green starts at (%)").contains("%"))
+    switch Bundle.main.preferredLocalizations.first {
+    case "zh-Hans": precondition(L("Weekly quota") == "每周额度")
+    case "ja": precondition(L("Weekly quota") == "週間利用枠")
+    default: precondition(L("Weekly quota") == "Weekly quota")
+    }
+    print("PASS: localized labels and literal percent signs")
     print("PASS: bucket selection, window labels, remaining %, missing data and bounds")
 }
 
@@ -443,7 +464,7 @@ if CommandLine.arguments.contains("--self-test") {
     do {
         for _ in 0..<2 {
             let bucket = try client.fetch()
-            for window in bucket.windows { print("\(window.title): 剩余 \(window.remaining.map(String.init) ?? "未知")%") }
+            for window in bucket.windows { print(L("%@: %@ remaining", window.title, window.remaining.map { "\($0)%" } ?? L("Unknown"))) }
         }
         client.stop()
     } catch { client.stop(); fputs("\(error.localizedDescription)\n", stderr); exit(1) }
@@ -460,9 +481,13 @@ if CommandLine.arguments.contains("--self-test") {
         }
         return true
     }
-    if let tiff = image.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff), let png = bitmap.representation(using: .png, properties: [:]) {
-        try png.write(to: URL(fileURLWithPath: CommandLine.arguments[index + 1]))
-    }
+    let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 2220, pixelsHigh: 600, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+    NSGraphicsContext.current?.cgContext.scaleBy(x: 6, y: 6)
+    image.draw(in: NSRect(x: 0, y: 0, width: 370, height: 100))
+    NSGraphicsContext.restoreGraphicsState()
+    try bitmap.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: CommandLine.arguments[index + 1]))
 } else {
     let app = NSApplication.shared
     let delegate = AppDelegate(); app.delegate = delegate; app.run()

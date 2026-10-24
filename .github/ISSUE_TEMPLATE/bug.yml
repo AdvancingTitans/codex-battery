@@ -1,0 +1,19 @@
+name: Bug report / 问题反馈 / 不具合
+description: Report a reproducible problem without sharing private data.
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: input
+    id: versions
+    attributes:
+      label: App, macOS and Codex CLI versions
+      placeholder: "1.2.0 / macOS 15 / codex-cli 0.144.1"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps, expected result and actual result
+      description: English, 中文 or 日本語. Redact account IDs and private paths. Never paste tokens, cookies or auth.json.
+    validations:
+      required: true

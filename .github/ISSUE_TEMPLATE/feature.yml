@@ -1,0 +1,11 @@
+name: Focused suggestion / 功能建议 / 改善提案
+description: Suggest a small improvement to the Codex quota battery.
+title: "[Idea] "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: English, 中文 or 日本語. Explain the current limitation and your intended result.
+    validations:
+      required: true
